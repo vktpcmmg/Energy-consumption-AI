@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pickle
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import LabelEncoder
+
 import base64
 
-# ===============================
-# Load Logo (PNG file should be in same folder)
-# ===============================
 def get_image_base64(file_path):
     with open(file_path, "rb") as f:
         data = f.read()
@@ -32,47 +31,67 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ===============================
-# Load Saved Models and Encoders
-# ===============================
+# Cache data loading
+@st.cache_data
+def load_data():
+    # Read three split CSVs
+    df1 = pd.read_csv("consumptionai1.csv")
+    df2 = pd.read_csv("consumptionai2.csv")
+    df3 = pd.read_csv("consumptionai3.csv")
+    
+    # Merge them together
+    df = pd.concat([df1, df2, df3], ignore_index=True)
+
+    # Clean columns
+    df.columns = df.columns.str.strip()
+    df.rename(columns={'Connected  Load': 'Connected Load'}, inplace=True)
+    return df
+
+# Train models and label encoders
 @st.cache_resource
-def load_models():
-    with open("trained_models.pkl", "rb") as f:
-        models = pickle.load(f)
-    with open("label_encoders.pkl", "rb") as f:
-        label_encoders = pickle.load(f)
+def train_models(df):
+    label_encoders = {}
+    for col in ['Zone', 'Category']:
+        le = LabelEncoder()
+        df[col] = le.fit_transform(df[col])
+        label_encoders[col] = le
+
+    input_features = ['Connected Load', 'Zone', 'Category']
+    months = ['May', 'Jun', 'Jul', 'August', 'Sept', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr']
+    models = {}
+
+    for month in months:
+        X = df[input_features]
+        y = df[month]
+        model = RandomForestRegressor(n_estimators=10, random_state=42)
+        model.fit(X, y)
+        models[month] = model
+
     return models, label_encoders
 
-models, label_encoders = load_models()
-
-# ===============================
-# App Description
-# ===============================
-st.markdown("*_Note: This model is trained on ~5.8 lakh smart meter records from FY 24–25._*")
+# Streamlit app layout
+st.markdown("*_Note: This is based on around 100K smart meter data from FY 24–25._*")
 st.write("Enter details to predict monthly electricity usage (kWh/KVAh).")
 
-# ===============================
-# User Inputs
-# ===============================
+# Load data and train models
+df = load_data()
+models, label_encoders = train_models(df)
+
+# User inputs
 connected_load = st.number_input("Connected Load (kW/KVA)", min_value=0.0, value=10.0)
-
 zone = st.selectbox("Select Zone", label_encoders['Zone'].classes_)
-
 category = st.selectbox("Select Category", label_encoders['Category'].classes_)
+month = st.selectbox("Select Month", ['May', 'Jun', 'Jul', 'August', 'Sept', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'])
 
-month = st.selectbox("Select Month", list(models.keys()))
+# Encode inputs
+zone_enc = label_encoders['Zone'].transform([zone])[0]
+category_enc = label_encoders['Category'].transform([category])[0]
 
-# ===============================
-# Prediction
-# ===============================
+# Add a Predict button with input validation
 if connected_load <= 0:
     st.error("⚠️ Please enter a valid load. Zero or negative load does not exist.")
 else:
     if st.button("🔍 Predict Consumption"):
-        zone_enc = label_encoders['Zone'].transform([zone])[0]
-        category_enc = label_encoders['Category'].transform([category])[0]
-
-        input_data = np.array([[category_enc, connected_load, zone_enc]])
+        input_data = np.array([[connected_load, zone_enc, category_enc]])
         prediction = models[month].predict(input_data)[0]
-
         st.success(f"📊 Predicted electricity consumption for **{month}**: **{prediction:.2f} kWh**")
