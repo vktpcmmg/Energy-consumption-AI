@@ -64,7 +64,7 @@ def train_models(df):
 # Streamlit app layout
 
 
-st.markdown("*_Note: This is based on around 220K meter data from FY 24–25._*")
+st.markdown("*_Note: This AI model is based on around more than 200K meter data from FY 24–25._*")
 st.write("Enter details to predict monthly electricity usage.")
 
 
